@@ -1,3 +1,5 @@
+![Banner](banner.png)
+
 # monitor-networktraffic
 Monitor network traffic for unusual patterns, flagging unexpected connections or high data transfer rates to specific IPs.  Uses `scapy` to capture and analyze packets. - Focused on System monitoring and alerts
 
