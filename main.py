@@ -10,6 +10,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Global variables
 packet_count = 0
 suspicious_connections = {}  # Dictionary to store suspicious connections (IP: count)
+warned_connections = set()  # Pairs that have already produced a threshold warning
 PCAP_FILE = "network_traffic.pcap"
 
 def setup_argparse():
@@ -49,7 +50,8 @@ def process_packet(packet, threshold, destination, pcap_writer):
             else:
                 suspicious_connections[key] = 1
 
-            if suspicious_connections[key] > threshold:
+            if suspicious_connections[key] > threshold and key not in warned_connections:
+                warned_connections.add(key)
                 logging.warning(f"Possible suspicious connection: {src_ip} -> {dst_ip} (Packet Count: {suspicious_connections[key]})")
 
             if pcap_writer:
@@ -70,6 +72,10 @@ def main():
     threshold = args.threshold
     number = args.number
     destination = args.destination
+
+    if threshold <= 0:
+        logging.error("Threshold must be a positive integer.")
+        sys.exit(1)
 
     if destination:
         try:
@@ -93,21 +99,22 @@ def main():
             logging.error(f"Failed to open pcap file for writing: {e}")
             pcap_writer = None
         
+    capture_failed = False
     try:
-        sniff(iface=interface, filter=bpf_filter, prn=lambda x: process_packet(x, threshold, destination, pcap_writer), count=number)
+        sniff(iface=interface, filter=bpf_filter, prn=lambda x: process_packet(x, threshold, destination, pcap_writer), count=number, store=False)
 
     except Exception as e:
+        capture_failed = True
         logging.error(f"Error during packet capture: {e}")
     finally:
         logging.info("Stopping network traffic monitoring.")
         if pcap_writer:
             pcap_writer.close()
             logging.info(f"Packets saved to {PCAP_FILE}")
-            
-    if args.number:
-        logging.info(f"Captured {args.number} packets.")
-    else:
-         logging.info(f"Captured {packet_count} packets.")
+
+    logging.info(f"Captured {packet_count} packets.")
+    if capture_failed:
+        sys.exit(1)
 
 if __name__ == "__main__":
     # Usage examples:
