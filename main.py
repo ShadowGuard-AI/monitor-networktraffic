@@ -37,6 +37,11 @@ def process_packet(packet, threshold, destination, pcap_writer):
     packet_count += 1
 
     try:
+        # Everything I do sits inside this test, including writing
+        # to the pcap file. IPv6 packets and non IP traffic are
+        # counted in the packet total above and then dropped: never
+        # counted against a pair, never warned on, and never saved,
+        # even when the operator asked for a capture file.
         if IP in packet:
             src_ip = packet[IP].src
             dst_ip = packet[IP].dst
@@ -44,6 +49,10 @@ def process_packet(packet, threshold, destination, pcap_writer):
             if destination and dst_ip != destination:
                 return  # Skip if destination IP is specified and doesn't match
                 
+            # A connection to me is a pair of hosts. Ports and protocol
+            # play no part, so a thousand packets spread across a
+            # thousand different services between the same two machines
+            # adds up exactly like a thousand packets to one service.
             key = (src_ip, dst_ip)
             if key in suspicious_connections:
                 suspicious_connections[key] += 1
@@ -51,6 +60,11 @@ def process_packet(packet, threshold, destination, pcap_writer):
                 suspicious_connections[key] = 1
 
             if suspicious_connections[key] > threshold and key not in warned_connections:
+                # Counts never decay and never reset, and this set remembers
+                # that a pair was warned about for the life of the process.
+                # A slow trickle between two hosts therefore crosses the
+                # threshold eventually, once, and can never warn again no
+                # matter how much larger it grows afterwards.
                 warned_connections.add(key)
                 logging.warning(f"Possible suspicious connection: {src_ip} -> {dst_ip} (Packet Count: {suspicious_connections[key]})")
 
@@ -80,6 +94,10 @@ def main():
     if destination:
         try:
             # Input validation for destination IP address (basic check)
+            # This accepts only dotted IPv4, written in digits, so an
+            # IPv6 destination can never be named even though the
+            # interface will happily carry its traffic, which the IP
+            # test above then ignores anyway.
             ip_parts = destination.split(".")
             if len(ip_parts) != 4 or not all(part.isdigit() and 0 <= int(part) <= 255 for part in ip_parts):
                 raise ValueError("Invalid destination IP address format.")
@@ -92,6 +110,10 @@ def main():
     pcap_writer = None
     if args.pcap:
         try:
+            # The capture file has a fixed name in the working directory
+            # and is appended to, so runs share one growing file, and
+            # sync on every packet trades capture speed for the promise
+            # that a crash loses as little as possible.
             pcap_writer = PcapWriter(PCAP_FILE, append=True, sync=True)
             logging.info(f"Saving captured packets to {PCAP_FILE}")
 
